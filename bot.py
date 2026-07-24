@@ -4,6 +4,7 @@ import sqlite3
 import requests
 from datetime import datetime, timezone
 
+
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
@@ -16,8 +17,13 @@ POLL_INTERVAL = 10
 
 DB_FILE = "wallet_observer.db"
 
-# Telegram
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
@@ -79,17 +85,27 @@ def init_database():
 def send_telegram(message):
 
     if not TELEGRAM_BOT_TOKEN:
+
         print("[TELEGRAM] Token not configured")
+
         return
+
 
     if not TELEGRAM_CHAT_ID:
+
         print("[TELEGRAM] Chat ID not configured")
+
         return
 
+
     url = (
+
         f"https://api.telegram.org/bot"
+
         f"{TELEGRAM_BOT_TOKEN}/sendMessage"
+
     )
+
 
     payload = {
 
@@ -101,9 +117,10 @@ def send_telegram(message):
 
     }
 
+
     try:
 
-        requests.post(
+        response = requests.post(
 
             url,
 
@@ -113,10 +130,26 @@ def send_telegram(message):
 
         )
 
+
+        if not response.ok:
+
+            print(
+
+                f"[TELEGRAM ERROR] "
+
+                f"{response.status_code} "
+
+                f"{response.text}"
+
+            )
+
+
     except Exception as error:
 
         print(
+
             f"[TELEGRAM ERROR] {error}"
+
         )
 
 
@@ -130,18 +163,26 @@ def get_last_timestamp():
 
     cursor = connection.cursor()
 
+
     cursor.execute("""
+
         SELECT MAX(timestamp)
+
         FROM trades
+
     """)
+
 
     result = cursor.fetchone()
 
+
     connection.close()
+
 
     if result and result[0]:
 
         return int(result[0])
+
 
     return 0
 
@@ -162,6 +203,7 @@ def get_trades():
 
     }
 
+
     response = requests.get(
 
         API_URL,
@@ -172,13 +214,17 @@ def get_trades():
 
     )
 
+
     response.raise_for_status()
 
+
     data = response.json()
+
 
     if not isinstance(data, list):
 
         return []
+
 
     return data
 
@@ -190,8 +236,17 @@ def get_trades():
 def save_trade(trade):
 
     timestamp = int(
-        trade.get("timestamp", 0)
+
+        trade.get(
+
+            "timestamp",
+
+            0
+
+        )
+
     )
+
 
     dt = datetime.fromtimestamp(
 
@@ -201,19 +256,45 @@ def save_trade(trade):
 
     ).isoformat()
 
+
     price = float(
-        trade.get("price", 0)
+
+        trade.get(
+
+            "price",
+
+            0
+
+        )
+
     )
 
+
     size = float(
-        trade.get("size", 0)
+
+        trade.get(
+
+            "size",
+
+            0
+
+        )
+
     )
+
 
     usdc_value = price * size
 
+
     trade_id = (
 
-        trade.get("transactionHash", "")
+        trade.get(
+
+            "transactionHash",
+
+            ""
+
+        )
 
         + "_"
 
@@ -229,9 +310,11 @@ def save_trade(trade):
 
     )
 
+
     connection = sqlite3.connect(DB_FILE)
 
     cursor = connection.cursor()
+
 
     try:
 
@@ -303,28 +386,42 @@ def save_trade(trade):
 
         ))
 
+
         connection.commit()
 
+
         is_new = True
+
 
     except sqlite3.IntegrityError:
 
         is_new = False
 
+
     connection.close()
+
 
     return is_new
 
 
 # ============================================================
-# FORMAT TELEGRAM MESSAGE
+# FORMAT TRADE
 # ============================================================
 
 def format_trade(trade):
 
     timestamp = int(
-        trade.get("timestamp", 0)
+
+        trade.get(
+
+            "timestamp",
+
+            0
+
+        )
+
     )
+
 
     dt = datetime.fromtimestamp(
 
@@ -333,50 +430,95 @@ def format_trade(trade):
         tz=timezone.utc
 
     ).strftime(
+
         "%Y-%m-%d %H:%M:%S"
+
     )
+
 
     price = float(
-        trade.get("price", 0)
+
+        trade.get(
+
+            "price",
+
+            0
+
+        )
+
     )
 
+
     size = float(
-        trade.get("size", 0)
+
+        trade.get(
+
+            "size",
+
+            0
+
+        )
+
     )
+
 
     value = price * size
 
+
     side = trade.get(
+
         "side",
+
         "UNKNOWN"
+
     )
+
 
     outcome = trade.get(
+
         "outcome",
+
         "UNKNOWN"
+
     )
+
 
     title = trade.get(
+
         "title",
+
         "Unknown market"
+
     )
 
+
     return f"""
+
 🔔 НОВАЯ СДЕЛКА
+
 
 📊 {title}
 
+
 ➡️ {side}
+
 🎯 {outcome}
 
+
 💵 Цена: ${price:.4f}
+
 📦 Размер: {size:.2f}
+
 💰 Объём: ${value:.2f}
+
 
 🕒 {dt} UTC
 
+
 👛 Кошелёк:
+
 {WALLET}
+
 """
 
 
@@ -387,35 +529,52 @@ def format_trade(trade):
 def main():
 
     print(
+
         "========================================"
+
     )
 
+
     print(
+
         "POLYMARKET WALLET OBSERVER"
+
     )
 
+
     print(
+
         "========================================"
+
     )
 
+
     print(
+
         f"Wallet: {WALLET}"
+
     )
+
 
     init_database()
 
+
     print(
+
         "[OK] Database initialized"
+
     )
 
-    # ВАЖНО:
-    # При первом запуске сначала сохраняем
-    # текущую историю без отправки
-    # тысячи старых сообщений в Telegram.
+
+    # При первом запуске сохраняем текущую историю
+    # без отправки старых сделок в Telegram.
 
     first_run = (
+
         get_last_timestamp() == 0
+
     )
+
 
     while True:
 
@@ -423,62 +582,108 @@ def main():
 
             trades = get_trades()
 
+
             trades.sort(
 
                 key=lambda x: int(
-                    x.get("timestamp", 0)
+
+                    x.get(
+
+                        "timestamp",
+
+                        0
+
+                    )
+
                 )
 
             )
 
+
             new_count = 0
 
-            for trade in trades:
 
-                timestamp = int(
-                    trade.get("timestamp", 0)
-                )
+            for trade in trades:
 
                 if save_trade(trade):
 
                     new_count += 1
 
+
+                    # Формируем сообщение сделки
+
+                    message = format_trade(
+
+                        trade
+
+                    )
+
+
+                    # ПОДРОБНЫЙ ЛОГ В RENDER
+
+                    print(
+
+                        f"\n"
+
+                        f"[NEW TRADE]\n"
+
+                        f"{message}"
+
+                    )
+
+
+                    # Отправляем только новые сделки
+                    # после первого запуска.
+
                     if not first_run:
 
-                        message = format_trade(
-                            trade
+                        send_telegram(
+
+                            message
+
                         )
 
-                        send_telegram(
-                            message
-                        )
 
             if new_count > 0:
 
                 print(
+
                     f"[NEW] {new_count} trades"
+
                 )
 
             else:
 
                 print(
+
                     "[INFO] No new trades"
+
                 )
+
 
             first_run = False
 
+
             time.sleep(
+
                 POLL_INTERVAL
+
             )
+
 
         except Exception as error:
 
             print(
+
                 f"[ERROR] {error}"
+
             )
 
+
             time.sleep(
+
                 30
+
             )
 
 
