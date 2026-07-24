@@ -32,7 +32,10 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def get_connection():
 
-    return sqlite3.connect(DB_FILE)
+    return sqlite3.connect(
+        DB_FILE,
+        timeout=30
+    )
 
 
 def init_database():
@@ -81,8 +84,6 @@ def init_database():
 
     connection.close()
 
-    print("[OK] Database initialized")
-
 
 # ============================================================
 # TELEGRAM
@@ -96,16 +97,22 @@ def send_telegram(message):
 
         return
 
+
     if not TELEGRAM_CHAT_ID:
 
         print("[TELEGRAM] Chat ID not configured")
 
         return
 
+
     url = (
+
         f"https://api.telegram.org/bot"
+
         f"{TELEGRAM_BOT_TOKEN}/sendMessage"
+
     )
+
 
     payload = {
 
@@ -116,6 +123,7 @@ def send_telegram(message):
         "disable_web_page_preview": True
 
     }
+
 
     try:
 
@@ -129,23 +137,33 @@ def send_telegram(message):
 
         )
 
+
         if not response.ok:
 
             print(
 
-                f"[TELEGRAM ERROR] "
-                f"{response.status_code} "
-                f"{response.text}"
+                "[TELEGRAM ERROR]",
+
+                response.status_code,
+
+                response.text
 
             )
 
+
     except Exception as error:
 
-        print(f"[TELEGRAM ERROR] {error}")
+        print(
+
+            "[TELEGRAM ERROR]",
+
+            error
+
+        )
 
 
 # ============================================================
-# GET TRADES FROM POLYMARKET
+# API
 # ============================================================
 
 def get_trades():
@@ -160,6 +178,7 @@ def get_trades():
 
     }
 
+
     response = requests.get(
 
         API_URL,
@@ -170,13 +189,23 @@ def get_trades():
 
     )
 
+
     response.raise_for_status()
+
 
     data = response.json()
 
-    if not isinstance(data, list):
+
+    if not isinstance(
+
+        data,
+
+        list
+
+    ):
 
         return []
+
 
     return data
 
@@ -185,7 +214,7 @@ def get_trades():
 # TRADE ID
 # ============================================================
 
-def create_trade_id(trade):
+def make_trade_id(trade):
 
     transaction_hash = str(
 
@@ -199,6 +228,7 @@ def create_trade_id(trade):
 
     )
 
+
     timestamp = str(
 
         trade.get(
@@ -211,29 +241,6 @@ def create_trade_id(trade):
 
     )
 
-    asset = str(
-
-        trade.get(
-
-            "asset",
-
-            ""
-
-        )
-
-    )
-
-    side = str(
-
-        trade.get(
-
-            "side",
-
-            ""
-
-        )
-
-    )
 
     price = str(
 
@@ -247,6 +254,7 @@ def create_trade_id(trade):
 
     )
 
+
     size = str(
 
         trade.get(
@@ -259,6 +267,34 @@ def create_trade_id(trade):
 
     )
 
+
+    outcome = str(
+
+        trade.get(
+
+            "outcome",
+
+            ""
+
+        )
+
+    )
+
+
+    asset = str(
+
+        trade.get(
+
+            "asset",
+
+            ""
+
+        )
+
+
+    )
+
+
     return (
 
         transaction_hash
@@ -269,19 +305,19 @@ def create_trade_id(trade):
 
         + "_"
 
-        + asset
-
-        + "_"
-
-        + side
-
-        + "_"
-
         + price
 
         + "_"
 
         + size
+
+        + "_"
+
+        + outcome
+
+        + "_"
+
+        + asset
 
     )
 
@@ -304,6 +340,7 @@ def save_trade(trade):
 
     )
 
+
     dt = datetime.fromtimestamp(
 
         timestamp,
@@ -311,6 +348,7 @@ def save_trade(trade):
         tz=timezone.utc
 
     ).isoformat()
+
 
     price = float(
 
@@ -324,6 +362,7 @@ def save_trade(trade):
 
     )
 
+
     size = float(
 
         trade.get(
@@ -336,13 +375,21 @@ def save_trade(trade):
 
     )
 
+
     usdc_value = price * size
 
-    trade_id = create_trade_id(trade)
+
+    trade_id = make_trade_id(
+
+        trade
+
+    )
+
 
     connection = get_connection()
 
     cursor = connection.cursor()
+
 
     try:
 
@@ -414,99 +461,153 @@ def save_trade(trade):
 
         ))
 
+
         connection.commit()
 
         is_new = True
+
 
     except sqlite3.IntegrityError:
 
         is_new = False
 
-    finally:
 
-        connection.close()
+    connection.close()
+
 
     return is_new
 
 
 # ============================================================
-# GET ALL TRADES OF ONE MARKET
+# GET ALL TRADES OF MARKET
 # ============================================================
 
-def get_market_trades(condition_id):
+def get_market_trades(
+
+    condition_id,
+
+    title
+
+):
 
     connection = get_connection()
 
     cursor = connection.cursor()
 
-    cursor.execute("""
 
-        SELECT
+    if condition_id:
 
-            timestamp,
+        cursor.execute("""
 
-            datetime_utc,
+            SELECT
 
-            side,
+                timestamp,
 
-            price,
+                datetime_utc,
 
-            size,
+                side,
 
-            usdc_value,
+                price,
+
+                size,
+
+                usdc_value,
+
+                outcome,
+
+                condition_id
+
+            FROM trades
+
+            WHERE condition_id = ?
+
+            ORDER BY timestamp ASC, id ASC
+
+        """, (
+
+            condition_id,
+
+        ))
+
+    else:
+
+        cursor.execute("""
+
+            SELECT
+
+                timestamp,
+
+                datetime_utc,
+
+                side,
+
+                price,
+
+                size,
+
+                usdc_value,
+
+                outcome,
+
+                condition_id
+
+            FROM trades
+
+            WHERE title = ?
+
+            ORDER BY timestamp ASC, id ASC
+
+        """, (
 
             title,
 
-            outcome,
+        ))
 
-            asset,
-
-            transaction_hash
-
-        FROM trades
-
-        WHERE condition_id = ?
-
-        ORDER BY timestamp ASC, id ASC
-
-    """, (
-
-        condition_id,
-
-    ))
 
     rows = cursor.fetchall()
 
+
     connection.close()
+
 
     return rows
 
 
 # ============================================================
-# MARKET ANALYSIS
+# ANALYSIS
 # ============================================================
 
-def analyze_market(condition_id):
+def analyze_market(
 
-    trades = get_market_trades(condition_id)
+    condition_id,
 
-    if not trades:
+    title
 
-        return None
+):
 
-    title = trades[0][6]
+    rows = get_market_trades(
+
+        condition_id,
+
+        title
+
+    )
+
+
+    if not rows:
+
+        return ""
+
 
     up_trades = []
 
     down_trades = []
 
-    total_invested = 0
 
-    total_up = 0
+    total_invested = 0.0
 
-    total_down = 0
 
-    for trade in trades:
+    for row in rows:
 
         (
 
@@ -520,394 +621,329 @@ def analyze_market(condition_id):
 
             size,
 
-            usdc_value,
-
-            title,
+            value,
 
             outcome,
 
-            asset,
+            saved_condition_id
 
-            transaction_hash
+        ) = row
 
-        ) = trade
 
-        if side != "BUY":
+        total_invested += value
 
-            continue
 
-        total_invested += usdc_value
+        outcome_lower = str(
 
-        if outcome.lower() == "up":
+            outcome
+
+        ).lower()
+
+
+        if outcome_lower == "up":
 
             up_trades.append(
 
-                {
+                (
 
-                    "price": price,
+                    price,
 
-                    "size": size,
+                    size,
 
-                    "value": usdc_value,
+                    value
 
-                    "timestamp": timestamp
-
-                }
+                )
 
             )
 
-            total_up += usdc_value
 
-        elif outcome.lower() == "down":
+        elif outcome_lower == "down":
 
             down_trades.append(
 
-                {
+                (
 
-                    "price": price,
+                    price,
 
-                    "size": size,
+                    size,
 
-                    "value": usdc_value,
+                    value
 
-                    "timestamp": timestamp
-
-                }
+                )
 
             )
 
-            total_down += usdc_value
 
-    up_size = sum(
+    def calculate_side(
 
-        item["size"]
+        trades
 
-        for item in up_trades
+    ):
+
+        if not trades:
+
+            return {
+
+                "size": 0.0,
+
+                "cost": 0.0,
+
+                "average": 0.0,
+
+                "payout": 0.0,
+
+                "profit": 0.0
+
+            }
+
+
+        total_size = sum(
+
+            item[1]
+
+            for item in trades
+
+        )
+
+
+        total_cost = sum(
+
+            item[2]
+
+            for item in trades
+
+        )
+
+
+        average_price = (
+
+            total_cost
+
+            / total_size
+
+            if total_size > 0
+
+            else 0
+
+        )
+
+
+        payout = total_size
+
+
+        profit = payout - total_cost
+
+
+        return {
+
+            "size": total_size,
+
+            "cost": total_cost,
+
+            "average": average_price,
+
+            "payout": payout,
+
+            "profit": profit
+
+        }
+
+
+    up = calculate_side(
+
+        up_trades
 
     )
 
-    down_size = sum(
 
-        item["size"]
+    down = calculate_side(
 
-        for item in down_trades
-
-    )
-
-    up_average = (
-
-        total_up / up_size
-
-        if up_size > 0
-
-        else 0
+        down_trades
 
     )
 
-    down_average = (
 
-        total_down / down_size
+    if up["cost"] > 0 and down["cost"] > 0:
 
-        if down_size > 0
+        combined_average = (
 
-        else 0
+            up["cost"]
 
-    )
+            + down["cost"]
 
-    return {
+        ) / (
 
-        "condition_id": condition_id,
+            up["size"]
 
-        "title": title,
+            + down["size"]
 
-        "trades": trades,
-
-        "up_trades": up_trades,
-
-        "down_trades": down_trades,
-
-        "total_up": total_up,
-
-        "total_down": total_down,
-
-        "total_invested": total_invested,
-
-        "up_size": up_size,
-
-        "down_size": down_size,
-
-        "up_average": up_average,
-
-        "down_average": down_average
-
-    }
+        )
 
 
-# ============================================================
-# FORMAT MARKET ANALYSIS
-# ============================================================
+    else:
 
-def format_market_analysis(analysis):
+        combined_average = 0
 
-    if not analysis:
-
-        return "No analysis available"
-
-    title = analysis["title"]
-
-    up_trades = analysis["up_trades"]
-
-    down_trades = analysis["down_trades"]
-
-    total_up = analysis["total_up"]
-
-    total_down = analysis["total_down"]
-
-    total_invested = analysis["total_invested"]
-
-    up_average = analysis["up_average"]
-
-    down_average = analysis["down_average"]
 
     lines = []
 
-    lines.append("")
-
-    lines.append("=" * 70)
-
-    lines.append("📊 MARKET ANALYSIS")
-
-    lines.append("=" * 70)
-
-    lines.append("")
-
-    lines.append(f"📌 {title}")
-
-    lines.append("")
-
-    lines.append("🟢 UP POSITIONS")
-
-    lines.append("-" * 40)
-
-    if up_trades:
-
-        for item in up_trades:
-
-            lines.append(
-
-                f"BUY UP: "
-
-                f"{item['size']:.2f} "
-
-                f"@ ${item['price']:.4f} "
-
-                f"= ${item['value']:.2f}"
-
-            )
-
-    else:
-
-        lines.append("No UP trades")
-
-    lines.append("")
 
     lines.append(
 
-        f"TOTAL UP: ${total_up:.2f}"
+        "📈 АНАЛИЗ РЫНКА"
 
     )
 
-    lines.append(
-
-        f"UP SIZE: {analysis['up_size']:.2f}"
-
-    )
-
-    lines.append(
-
-        f"UP AVG PRICE: ${up_average:.4f}"
-
-    )
 
     lines.append("")
 
-    lines.append("🔴 DOWN POSITIONS")
 
-    lines.append("-" * 40)
+    lines.append(
 
-    if down_trades:
+        f"📊 {title}"
 
-        for item in down_trades:
+    )
 
-            lines.append(
-
-                f"BUY DOWN: "
-
-                f"{item['size']:.2f} "
-
-                f"@ ${item['price']:.4f} "
-
-                f"= ${item['value']:.2f}"
-
-            )
-
-    else:
-
-        lines.append("No DOWN trades")
 
     lines.append("")
 
-    lines.append(
-
-        f"TOTAL DOWN: ${total_down:.2f}"
-
-    )
 
     lines.append(
 
-        f"DOWN SIZE: {analysis['down_size']:.2f}"
-
-    )
-
-    lines.append(
-
-        f"DOWN AVG PRICE: ${down_average:.4f}"
-
-    )
-
-    lines.append("")
-
-    lines.append("💰 TOTAL INVESTED")
-
-    lines.append("-" * 40)
-
-    lines.append(
+        f"💰 Всего вложено: "
 
         f"${total_invested:.2f}"
 
     )
 
+
     lines.append("")
 
-    lines.append("🧠 TRADE SEQUENCE")
 
-    lines.append("-" * 40)
+    lines.append(
 
-    for trade in analysis["trades"]:
+        "🟢 UP"
 
-        (
+    )
 
-            timestamp,
 
-            datetime_utc,
+    lines.append(
 
-            side,
+        f"Покупок: {len(up_trades)}"
 
-            price,
+    )
 
-            size,
 
-            usdc_value,
+    lines.append(
 
-            title,
+        f"Количество: {up['size']:.2f}"
 
-            outcome,
+    )
 
-            asset,
 
-            transaction_hash
+    lines.append(
 
-        ) = trade
+        f"Вложено: ${up['cost']:.2f}"
+
+    )
+
+
+    lines.append(
+
+        f"Средняя цена: "
+
+        f"${up['average']:.4f}"
+
+    )
+
+
+    lines.append(
+
+        f"Выплата при победе: "
+
+        f"${up['payout']:.2f}"
+
+    )
+
+
+    lines.append(
+
+        f"Результат при победе: "
+
+        f"${up['profit']:.2f}"
+
+    )
+
+
+    lines.append("")
+
+
+    lines.append(
+
+        "🔴 DOWN"
+
+    )
+
+
+    lines.append(
+
+        f"Покупок: {len(down_trades)}"
+
+    )
+
+
+    lines.append(
+
+        f"Количество: {down['size']:.2f}"
+
+    )
+
+
+    lines.append(
+
+        f"Вложено: ${down['cost']:.2f}"
+
+    )
+
+
+    lines.append(
+
+        f"Средняя цена: "
+
+        f"${down['average']:.4f}"
+
+    )
+
+
+    lines.append(
+
+        f"Выплата при победе: "
+
+        f"${down['payout']:.2f}"
+
+    )
+
+
+    lines.append(
+
+        f"Результат при победе: "
+
+        f"${down['profit']:.2f}"
+
+    )
+
+
+    lines.append("")
+
+
+    if (
+
+        up["cost"] > 0
+
+        and down["cost"] > 0
+
+    ):
 
         lines.append(
 
-            f"{datetime_utc} | "
-
-            f"{side} {outcome} | "
-
-            f"${price:.4f} | "
-
-            f"{size:.2f} tokens | "
-
-            f"${usdc_value:.2f}"
-
-        )
-
-    lines.append("")
-
-    lines.append("=" * 70)
-
-    lines.append("")
-
-    return "\n".join(lines)
-
-
-# ============================================================
-# FORMAT SINGLE TRADE
-# ============================================================
-
-def format_trade(trade):
-
-    timestamp = int(
-
-        trade.get(
-
-            "timestamp",
-
-            0
-
-        )
-
-    )
-
-    dt = datetime.fromtimestamp(
-
-        timestamp,
-
-        tz=timezone.utc
-
-    ).strftime(
-
-        "%Y-%m-%d %H:%M:%S"
-
-    )
-
-    price = float(
-
-        trade.get(
-
-            "price",
-
-            0
-
-        )
-
-    )
-
-    size = float(
-
-        trade.get(
-
-            "size",
-
-            0
-
-        )
-
-    )
-
-    value = price * size
-
-    side = trade.get(
-
-        "side",
-
-        "UNKNOWN"
-
-    )
-
-    outcome = trade.get(
-
-        "outcome",
-
-        "UNKNOWN
+            "⚖️ ОБЕ СТОРО
